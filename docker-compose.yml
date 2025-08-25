@@ -1,4 +1,4 @@
-version: '3.8'
+version: '4.44'
 
 networks:
   monitoring:
@@ -14,13 +14,17 @@ services:
     container_name: grafana
     restart: unless-stopped
     ports:
-      - 3030:3000
+      - 3000:3000
     networks:
       - monitoring
     environment:
-     - GF_SERVER_ROOT_URL=http://172.28.97.231/
+      - GF_SERVER_ROOT_URL=http://localhost:3000/
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
-      - ./grafana:/etc/grafana/conf
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
   node-exporter:
     image: prom/node-exporter:latest

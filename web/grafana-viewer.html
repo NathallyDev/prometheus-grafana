@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Visualizador Grafana</title>
+  <style>
+    body{font-family:Inter,Segoe UI,Arial;margin:16px;background:#f5f7fa;color:#202124}
+    .card{background:white;padding:12px;border-radius:8px;box-shadow:0 2px 6px rgba(16,24,40,.06);margin-bottom:12px}
+    label{display:block;font-weight:600;margin-bottom:6px}
+    input[type=text], select{width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px}
+    button{padding:8px 12px;border-radius:6px;background:#1f6feb;color:white;border:0;cursor:pointer}
+    .row{display:flex;gap:8px}
+    iframe{width:100%;height:700px;border:0;border-radius:6px}
+    .note{font-size:13px;color:#334155}
+  </style>
+</head>
+<body>
+  <h2>Visualizador Grafana</h2>
+  <div class="card">
+    <div class="note">Cole abaixo a URL de incorporação (embed) do Grafana ou a URL do dashboard/painel e clique em <strong>Carregar</strong>. Exemplo de URL de painel embed:
+  <pre class="note">http://localhost:3000/d-solo/UID_DO_DASHBOARD/nome-do-dashboard?panelId=1&orgId=1</pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <label for="embedUrl">URL do embed / dashboard / painel</label>
+    <input id="embedUrl" type="text" placeholder="Cole aqui a URL (ex: http://localhost:3030/d-solo/UID/slug?panelId=1)">
+    <div style="height:8px"></div>
+    <div class="row">
+      <button id="loadBtn">Carregar</button>
+      <button id="openGrafana">Abrir Grafana</button>
+      <select id="refreshSel">
+        <option value="0">Sem auto-refresh</option>
+        <option value="15">Auto-refresh 15s</option>
+        <option value="30">Auto-refresh 30s</option>
+        <option value="60">Auto-refresh 60s</option>
+      </select>
+    </div>
+    <div style="height:8px"></div>
+    <div class="note">Observação: para permitir incorporação, habilite "allow_embedding = true" em `grafana/grafana.ini` e reinicie o container Grafana. Se o Grafana exigir autenticação, faça login no Grafana antes de abrir este viewer no mesmo navegador.</div>
+  </div>
+
+  <div class="card">
+    <label>Visualização</label>
+    <div id="frameWrap"><iframe id="grafanaFrame" src="about:blank" title="Grafana Viewer"></iframe></div>
+  </div>
+
+  <script>
+    const loadBtn = document.getElementById('loadBtn');
+    const embedUrl = document.getElementById('embedUrl');
+    const grafanaFrame = document.getElementById('grafanaFrame');
+    const openGrafana = document.getElementById('openGrafana');
+    const refreshSel = document.getElementById('refreshSel');
+    let refreshTimer = null;
+
+    loadBtn.addEventListener('click', () => {
+      let url = embedUrl.value.trim();
+      if (!url) { alert('Cole a URL do dashboard ou do painel.'); return }
+
+      // Se é uma URL de dashboard ( /d/ ) converte para versão 'd' (full dashboard) ou mantém 'd-solo' (panel)
+      // Não alteramos querystring: o usuário pode colar a URL gerada pelo Grafana (Share -> Embed)
+      if (!/^https?:\/\//.test(url)) {
+        // se for um caminho relativo, prefixa com http://localhost:3000
+        url = 'http://localhost:3000' + (url.startsWith('/') ? url : '/' + url);
+      }
+
+      grafanaFrame.src = url;
+    });
+
+    openGrafana.addEventListener('click', () => {
+  window.open('http://localhost:3000', '_blank');
+    });
+
+    refreshSel.addEventListener('change', () => {
+      if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
+      const val = Number(refreshSel.value);
+      if (val > 0) {
+        refreshTimer = setInterval(() => {
+          // reload iframe
+          grafanaFrame.contentWindow.location.reload();
+        }, val * 1000);
+      }
+    });
+
+    // Atalho: Ctrl+Enter para carregar
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'Enter') loadBtn.click();
+    });
+  </script>
+</body>
+</html>

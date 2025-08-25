@@ -1,0 +1,19 @@
+{
+  "uid": "basic-overview",
+  "id": null,
+  "title": "Basic Prometheus Overview",
+  "timezone": "browser",
+  "panels": [
+    {
+      "type": "graph",
+      "id": 1,
+      "title": "CPU - node_exporter",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 8},
+      "targets": [
+        { "expr": "100 - (avg by(instance)(irate(node_cpu_seconds_total{mode=idle}[5m])) * 100)", "legendFormat": "{{instance}}" }
+      ]
+    }
+  ],
+  "schemaVersion": 27,
+  "version": 1
+}

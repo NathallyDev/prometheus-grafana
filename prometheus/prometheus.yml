@@ -12,7 +12,7 @@ scrape_configs:
         'job_queue',
         'directory_info',
         'printer_objects',
-        'history',
+        'history'
       ]
     relabel_configs:
       - source_labels: [__address__]
@@ -20,8 +20,18 @@ scrape_configs:
       - source_labels: [__param_target]
         target_label: instance
       - target_label: __address__
-        replacement:  172.28.97.231:9101
-  - job_name: 'cloudin_node'
-    scrape_interval: 5s
+        replacement: 172.28.97.231:9101
+
+  - job_name: 'node_exporter'
+    scrape_interval: 10s
     static_configs:
-      - targets: ['192.168.31.26:9100']
+      - targets: ['node-exporter:9100']
+        labels:
+          role: host
+
+  - job_name: 'klipper_exporter'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['klipper-exporter:9101']
+        labels:
+          role: klipper
