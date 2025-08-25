@@ -12,7 +12,7 @@ Pré-requisitos: Docker e Docker Compose instalados.
 
 2. Acessar serviços:
 
-	- Grafana: http://localhost:3000 (usuário: admin / senha: admin)
+	- Grafana: http://localhost:3003 (usuário: admin / senha: admin)
 	- Prometheus: http://localhost:9090
 
 3. O Grafana já vem com um datasource provisionado apontando para o Prometheus e um dashboard básico em `grafana/dashboards`.

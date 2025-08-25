@@ -1,91 +1,137 @@
 <!doctype html>
+<!doctype html>
 <html lang="pt-br">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Visualizador Grafana</title>
-  <style>
-    body{font-family:Inter,Segoe UI,Arial;margin:16px;background:#f5f7fa;color:#202124}
-    .card{background:white;padding:12px;border-radius:8px;box-shadow:0 2px 6px rgba(16,24,40,.06);margin-bottom:12px}
-    label{display:block;font-weight:600;margin-bottom:6px}
-    input[type=text], select{width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px}
-    button{padding:8px 12px;border-radius:6px;background:#1f6feb;color:white;border:0;cursor:pointer}
-    .row{display:flex;gap:8px}
-    iframe{width:100%;height:700px;border:0;border-radius:6px}
-    .note{font-size:13px;color:#334155}
-  </style>
-</head>
-<body>
-  <h2>Visualizador Grafana</h2>
-  <div class="card">
-    <div class="note">Cole abaixo a URL de incorporação (embed) do Grafana ou a URL do dashboard/painel e clique em <strong>Carregar</strong>. Exemplo de URL de painel embed:
-  <pre class="note">http://localhost:3000/d-solo/UID_DO_DASHBOARD/nome-do-dashboard?panelId=1&orgId=1</pre>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Visualizador Grafana — Prometheus</title>
+    <style>
+      :root{
+        --bg:#0f1724;--card:#0b1220;--muted:#94a3b8;--accent:#06b6d4;--glass:rgba(255,255,255,0.03);
+        --glass-2:rgba(255,255,255,0.02);--radius:12px
+      }
+      html,body{height:100%;margin:0;font-family:Inter,Segoe UI,Arial,system-ui;background:linear-gradient(180deg,#071029 0%, #07172a 60%);color:#e6eef8}
+      .wrap{max-width:1200px;margin:28px auto;padding:20px}
+      header{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+      .brand{display:flex;align-items:center;gap:12px}
+      .logo{width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#7c3aed);display:flex;align-items:center;justify-content:center;font-weight:700}
+      h1{font-size:18px;margin:0}
+      p.lead{margin:0;color:var(--muted);font-size:13px}
+
+      .grid{display:grid;grid-template-columns:360px 1fr;gap:18px}
+      .panel{background:linear-gradient(180deg,var(--card),transparent);padding:18px;border-radius:var(--radius);box-shadow:0 6px 30px rgba(2,6,23,.6);border:1px solid var(--glass)}
+      label{display:block;color:var(--muted);font-size:13px;margin-bottom:8px}
+      input[type=text], select{width:100%;padding:10px;border-radius:10px;border:1px solid var(--glass-2);background:transparent;color:inherit}
+      .controls{display:flex;gap:10px;margin-top:12px}
+      button{background:var(--accent);border:0;padding:10px 14px;border-radius:10px;color:#042027;cursor:pointer;font-weight:600}
+      button.ghost{background:transparent;border:1px solid var(--glass-2);color:var(--muted)}
+      .note{font-size:13px;color:var(--muted);margin-top:12px}
+
+      .viewer{height:78vh;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.04)}
+      iframe{width:100%;height:100%;border:0;background:white}
+
+      .meta{display:flex;gap:8px;align-items:center;margin-top:10px}
+      .meta button{padding:8px 10px;font-size:13px}
+
+      @media (max-width:940px){.grid{grid-template-columns:1fr;}.brand{gap:8px}.logo{width:36px;height:36px}}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand">
+          <div class="logo">G</div>
+          <div>
+            <h1>Visualizador Grafana</h1>
+            <p class="lead">Cole a URL do painel (embed) e veja aqui em tempo real.</p>
+          </div>
+        </div>
+      </header>
+
+      <div class="grid">
+        <aside class="panel">
+          <label for="embedUrl">URL do embed / painel</label>
+          <input id="embedUrl" type="text" aria-label="URL do painel" value="http://localhost:3000/d/3f164baf-6fa9-4f61-9c51-21825b150506/new-dashboard?orgId=1&from=2025-08-25T09:16:51.030Z&to=2025-08-25T15:16:51.030Z&timezone=browser&viewPanel=panel-1">
+
+          <div class="controls">
+            <button id="loadBtn">Carregar</button>
+            <button id="openGrafana" class="ghost">Abrir Grafana</button>
+            <select id="refreshSel" aria-label="Tempo de atualização">
+              <option value="0">Sem auto-refresh</option>
+              <option value="15">15s</option>
+              <option value="30">30s</option>
+              <option value="60">60s</option>
+            </select>
+          </div>
+
+          <div class="note">Dica: se o painel não carregar, faça login no Grafana (http://localhost:3000) no mesmo navegador ou habilite embedding no Grafana.</div>
+
+          <div class="meta">
+            <button id="copyBtn" class="ghost">Copiar URL</button>
+            <button id="openNew" class="ghost">Abrir em nova aba</button>
+          </div>
+        </aside>
+
+        <main>
+          <div class="panel viewer" role="region" aria-label="Área do painel">
+            <iframe id="grafanaFrame" src="about:blank" title="Grafana Viewer"></iframe>
+          </div>
+        </main>
+      </div>
     </div>
-  </div>
 
-  <div class="card">
-    <label for="embedUrl">URL do embed / dashboard / painel</label>
-    <input id="embedUrl" type="text" placeholder="Cole aqui a URL (ex: http://localhost:3030/d-solo/UID/slug?panelId=1)">
-    <div style="height:8px"></div>
-    <div class="row">
-      <button id="loadBtn">Carregar</button>
-      <button id="openGrafana">Abrir Grafana</button>
-      <select id="refreshSel">
-        <option value="0">Sem auto-refresh</option>
-        <option value="15">Auto-refresh 15s</option>
-        <option value="30">Auto-refresh 30s</option>
-        <option value="60">Auto-refresh 60s</option>
-      </select>
-    </div>
-    <div style="height:8px"></div>
-    <div class="note">Observação: para permitir incorporação, habilite "allow_embedding = true" em `grafana/grafana.ini` e reinicie o container Grafana. Se o Grafana exigir autenticação, faça login no Grafana antes de abrir este viewer no mesmo navegador.</div>
-  </div>
+    <script>
+      const loadBtn = document.getElementById('loadBtn');
+      const embedUrl = document.getElementById('embedUrl');
+      const grafanaFrame = document.getElementById('grafanaFrame');
+      const openGrafana = document.getElementById('openGrafana');
+      const refreshSel = document.getElementById('refreshSel');
+      const copyBtn = document.getElementById('copyBtn');
+      const openNew = document.getElementById('openNew');
+      let refreshTimer = null;
 
-  <div class="card">
-    <label>Visualização</label>
-    <div id="frameWrap"><iframe id="grafanaFrame" src="about:blank" title="Grafana Viewer"></iframe></div>
-  </div>
-
-  <script>
-    const loadBtn = document.getElementById('loadBtn');
-    const embedUrl = document.getElementById('embedUrl');
-    const grafanaFrame = document.getElementById('grafanaFrame');
-    const openGrafana = document.getElementById('openGrafana');
-    const refreshSel = document.getElementById('refreshSel');
-    let refreshTimer = null;
-
-    loadBtn.addEventListener('click', () => {
-      let url = embedUrl.value.trim();
-      if (!url) { alert('Cole a URL do dashboard ou do painel.'); return }
-
-      // Se é uma URL de dashboard ( /d/ ) converte para versão 'd' (full dashboard) ou mantém 'd-solo' (panel)
-      // Não alteramos querystring: o usuário pode colar a URL gerada pelo Grafana (Share -> Embed)
-      if (!/^https?:\/\//.test(url)) {
-        // se for um caminho relativo, prefixa com http://localhost:3000
-        url = 'http://localhost:3000' + (url.startsWith('/') ? url : '/' + url);
+      function normalizeUrl(url){
+        if(!url) return url;
+        url = url.trim();
+        if(!/^https?:\/\//.test(url)){
+          // assume local grafana
+          url = 'http://localhost:3000' + (url.startsWith('/') ? url : '/' + url);
+        }
+        return url;
       }
 
-      grafanaFrame.src = url;
-    });
+      loadBtn.addEventListener('click', () => {
+        const url = normalizeUrl(embedUrl.value);
+        if(!url){ alert('Cole a URL do dashboard/painel.'); return }
+        grafanaFrame.src = url;
+      });
 
-    openGrafana.addEventListener('click', () => {
-  window.open('http://localhost:3000', '_blank');
-    });
+      openGrafana.addEventListener('click', () => window.open('http://localhost:3000', '_blank'));
+      openNew.addEventListener('click', () => {
+        const url = normalizeUrl(embedUrl.value);
+        if(url) window.open(url, '_blank');
+      });
 
-    refreshSel.addEventListener('change', () => {
-      if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
-      const val = Number(refreshSel.value);
-      if (val > 0) {
-        refreshTimer = setInterval(() => {
-          // reload iframe
-          grafanaFrame.contentWindow.location.reload();
-        }, val * 1000);
+      copyBtn.addEventListener('click', async () => {
+        try{ await navigator.clipboard.writeText(embedUrl.value); copyBtn.textContent='Copiado'; setTimeout(()=>copyBtn.textContent='Copiar URL',1200)}catch(e){ alert('Não foi possível copiar') }
+      });
+
+      refreshSel.addEventListener('change', () => {
+        if(refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
+        const val = Number(refreshSel.value);
+        if(val>0){ refreshTimer = setInterval(()=>{ try{ grafanaFrame.contentWindow.location.reload() }catch(e){ grafanaFrame.src = grafanaFrame.src } }, val*1000) }
+      });
+
+      // keyboard shortcut
+      document.addEventListener('keydown', (e)=>{ if(e.ctrlKey && e.key==='Enter') loadBtn.click() });
+
+      // auto-load on open
+      document.addEventListener('DOMContentLoaded', ()=>{ if(embedUrl.value && embedUrl.value.trim()!=='') loadBtn.click() });
+    </script>
+  </body>
+</html>
+        loadBtn.click();
       }
-    });
-
-    // Atalho: Ctrl+Enter para carregar
-    document.addEventListener('keydown', (e) => {
-      if (e.ctrlKey && e.key === 'Enter') loadBtn.click();
     });
   </script>
 </body>
