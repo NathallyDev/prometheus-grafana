@@ -10,7 +10,35 @@
       "title": "CPU - node_exporter",
       "gridPos": {"x": 0, "y": 0, "w": 24, "h": 8},
       "targets": [
-        { "expr": "100 - (avg by(instance)(irate(node_cpu_seconds_total{mode=idle}[5m])) * 100)", "legendFormat": "{{instance}}" }
+  { "expr": "100 - (avg by(instance)(irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)", "legendFormat": "{{instance}}" }
+      ]
+    }
+    ,
+    {
+      "type": "graph",
+      "id": 2,
+      "title": "Memory Usage (node_exporter)",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        { "expr": "(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100", "legendFormat": "{{instance}}" }
+      ]
+    },
+    {
+      "type": "graph",
+      "id": 3,
+      "title": "Filesystem Used %",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        { "expr": "node_filesystem_size_bytes{fstype!~\"tmpfs|rootfs\"} - node_filesystem_free_bytes{fstype!~\"tmpfs|rootfs\"}", "legendFormat": "{{instance}} {{mountpoint}}" }
+      ]
+    },
+    {
+      "type": "graph",
+      "id": 4,
+      "title": "Up (targets)",
+      "gridPos": {"x": 0, "y": 16, "w": 24, "h": 6},
+      "targets": [
+        { "expr": "up", "legendFormat": "{{instance}}" }
       ]
     }
   ],

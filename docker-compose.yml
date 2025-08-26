@@ -7,6 +7,7 @@ networks:
 volumes:
   prometheus_data: {}
   grafana_data: {}
+  redis_data: {}
 
 services:
   grafana:
@@ -18,10 +19,11 @@ services:
     networks:
       - monitoring
     environment:
-      - GF_SERVER_ROOT_URL=http://localhost:3000/
+      - GF_SERVER_ROOT_URL=http://grafana:3000/
       - GF_SECURITY_ALLOW_EMBEDDING=true
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_RENDERING_SERVER_URL=http://grafana-image-renderer:8081/render
     volumes:
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -63,10 +65,58 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention=31d'
+  # retention flag removed (in recent Prometheus versions flag name changed)
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
     ports:
       - 9090:9090
     networks:
       - monitoring
+  app:
+    build: ./app
+    container_name: pf-proxy
+    restart: unless-stopped
+    ports:
+      - 3100:3100
+    env_file:
+      - ./app/.env
+    environment:
+      - GRAFANA_URL=http://grafana:3000
+      - PROMETHEUS_URL=http://prometheus:9090
+      # - GRAFANA_TOKEN=your_token_here
+    networks:
+      - monitoring
+    volumes:
+      - ./web:/usr/src/app/web:ro
+    secrets:
+      - grafana_token
+      - redis_password
+  grafana-image-renderer:
+    image: grafana/grafana-image-renderer:latest
+    container_name: grafana-image-renderer
+    restart: unless-stopped
+    ports:
+      - 8081:8081
+    networks:
+      - monitoring
+    extra_hosts:
+      - "localhost:host-gateway"
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    networks:
+      - monitoring
+    # For secure local development we mount secrets files into /run/secrets
+    secrets:
+      - redis_password
+    command: ["sh","-c","pw=$(sed '/^[[:space:]]*#/d' /run/secrets/redis_password 2>/dev/null | tr -d '\r' | sed -n '1p'); if [ -n \"$pw\" ]; then redis-server --requirepass \"$pw\"; else redis-server; fi"]
+    volumes:
+      - redis_data:/data
+
+
+secrets:
+  grafana_token:
+    file: ./secrets/grafana_token
+  redis_password:
+    file: ./secrets/redis_password

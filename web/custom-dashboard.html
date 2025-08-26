@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Custom Dashboard</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Custom Dashboard</h1>
+  <div class="controls">
+  <input id="uid" placeholder="Dashboard UID ou URL do dashboard (ex: /d/3f164baf-... ou https://.../d/3f164baf-...)" style="width:360px">
+    <button id="load">Carregar</button>
+    <button id="snapshot">Criar snapshot</button>
+  </div>
+    </header>
+
+    <div id="meta">Conectando a proxy em <strong>/api</strong> (fallback: http://localhost:3100)
+      <span id="snapshotArea" class="status"></span>
+    </div>
+
+    <div class="grid" id="panels">
+      <!-- cards gerados dinamicamente -->
+    </div>
+  </div>
+
+  <script>
+    async function fetchJson(url){
+      // Try the requested URL first (same-origin). If it fails (network/CORS),
+      // fall back to the proxy at http://localhost:3100 for developer setup.
+      const candidates = [url];
+      if(url.startsWith('/api')) candidates.push('http://localhost:3100' + url);
+
+      let lastErr = null;
+      for(const u of candidates){
+        try{
+          const r = await fetch(u);
+          if(!r.ok) throw new Error('HTTP '+r.status);
+          return r.json();
+        }catch(e){
+          lastErr = e;
+          // try next candidate
+        }
+      }
+      // If we get here, all candidates failed
+      throw lastErr || new Error('fetch failed');
+    }
+
+    function createCard(title){
+      const div = document.createElement('div'); div.className='card';
+      const h = document.createElement('h3'); h.textContent=title; h.style.marginTop='0'; h.style.fontSize='14px';
+      const canvas = document.createElement('canvas');
+      div.appendChild(h); div.appendChild(canvas);
+      return {el:div, canvas};
+    }
+
+    async function renderDashboardObject(dashboard){
+      const meta = document.getElementById('meta');
+      const uid = dashboard.uid || dashboard.title || 'dashboard';
+      meta.textContent = 'Renderizando dashboard ' + uid + '...';
+      try{
+        const panels = dashboard.panels || [];
+        const container = document.getElementById('panels'); container.innerHTML='';
+
+        // Improved rendering: create cards first and then render panels in parallel with limited concurrency.
+        const renderCache = renderDashboardObject._cache || (renderDashboardObject._cache = new Map());
+        const maxPanels = 6;
+        const panelsToProcess = [];
+        for(const p of panels){
+          if(panelsToProcess.length >= maxPanels) break;
+          const targets = p.targets || [];
+          const expr = targets.length ? (targets[0].expr || targets[0].query) : null;
+          if(!expr) continue;
+          const c = createCard(p.title || ('Painel '+p.id));
+          container.appendChild(c.el);
+          panelsToProcess.push({p, c, expr});
+        }
+
+        // simple concurrency pool
+        async function runPool(items, worker, concurrency=3){
+          const results = [];
+          let i = 0;
+          const runners = new Array(concurrency).fill(0).map(async ()=>{
+            while(true){
+              const idx = i++;
+              if(idx >= items.length) return;
+              try{ results[idx] = await worker(items[idx]); }catch(err){ results[idx] = {error:err}; }
+            }
+          });
+          await Promise.all(runners);
+          return results;
+        }
+
+        // worker for each panel: prefer image render, fallback to Prometheus data rendering
+        const worker = async ({p, c, expr})=>{
+          try{
+            // use smaller default image size to speed up rendering
+            const to = Date.now();
+            const from = to - (60*60*1000);
+            const width = 600; const height = 160;
+            const cacheKey = `${dashboard.uid||dashboard.title||''}:${p.id || 'noid'}:${from}:${to}:${width}x${height}`;
+            if(renderCache.has(cacheKey)){
+              const blob = renderCache.get(cacheKey);
+              const img = document.createElement('img'); img.style.width='100%'; img.style.height=height+'px'; img.style.objectFit='contain';
+              c.el.replaceChild(img, c.canvas);
+              img.src = URL.createObjectURL(blob);
+              return {ok:true};
+            }
+
+            if(p.id){
+              const img = document.createElement('img'); img.style.width='100%'; img.style.height=height+'px'; img.style.objectFit='contain';
+              // keep canvas until we have image to avoid layout shift
+              c.el.appendChild(img);
+              const qs = new URLSearchParams({ uid: (dashboard.uid||dashboard.title||''), panelId: String(p.id), from: String(from), to: String(to), width: String(width), height: String(height) });
+              try{
+                const r = await fetch('/api/render-panel?'+qs.toString());
+                if(r.ok){
+                  const blob = await r.blob();
+                  // cache blob (small memory cache)
+                  try{ renderCache.set(cacheKey, blob); }catch(_){}
+                  const url = URL.createObjectURL(blob);
+                  // replace canvas placeholder with image
+                  c.el.replaceChild(img, c.canvas);
+                  img.src = url;
+                  return {ok:true};
+                }else{
+                  console.warn('render-panel HTTP', r.status, await r.text());
+                }
+              }catch(e){ console.warn('render-panel failed', e); }
+            }
+
+            // fallback to Prometheus data rendering
+            const end = Math.floor(Date.now()/1000);
+            const start = end - 3600;
+            const step = Math.max(15, Math.floor((end - start) / 240));
+            const url = '/api/query_range?q='+encodeURIComponent(expr)+'&start='+start+'&end='+end+'&step='+step;
+            const rr = await fetchJson(url);
+            const series = (rr.data && rr.data.result) ? rr.data.result : [];
+
+            if(series.length === 0){
+              const inst = await fetchJson('/api/query?q='+encodeURIComponent(expr));
+              const instSeries = (inst.data && inst.data.result) ? inst.data.result : [];
+              const labels = instSeries.map((s,i)=> s.metric.__name__ || ('s'+i));
+              const vals = instSeries.map(s=> Number((s.value && s.value[1]) || s[1] || 0));
+              new Chart(c.canvas.getContext('2d'),{ type:'bar', data:{labels, datasets:[{label:p.title, data:vals, backgroundColor:'rgba(6,182,212,0.6)'}]}, options:{responsive:true,maintainAspectRatio:false} });
+            }else{
+              const datasets = series.map((s, idx)=>{
+                const label = Object.keys(s.metric).filter(k=>k!="").map(k=>`${k}=${s.metric[k]}`).join(',') || (s.metric.__name__||('series'+idx));
+                const data = (s.values || s.value || []).map(v=>{ const t = Array.isArray(v) ? Number(v[0]) : Number(v[0]); const val = Array.isArray(v) ? Number(v[1]) : Number(v[1]); return {x: t * 1000, y: isFinite(val)? val : null}; });
+                const color = `hsl(${(idx*60)%360} 70% 50%)`;
+                return {label, data, borderColor:color, backgroundColor:color, fill:false, tension:0.2};
+              });
+              new Chart(c.canvas.getContext('2d'),{ type:'line', data:{datasets}, options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ type:'time', time:{ unit:'minute', tooltipFormat:'HH:mm:ss' } }, y:{ beginAtZero:false } } } });
+            }
+            return {ok:true};
+          }catch(e){ console.error('panel render error', e); const err = document.createElement('div'); err.style.color='#ffb4b4'; err.textContent = 'Erro ao renderizar painel: '+e.message; c.el.appendChild(err); return {error:e}; }
+        };
+
+        // run pool and don't block UI main thread
+        runPool(panelsToProcess, worker, 3).then(()=>{ console.log('all panels processed'); }).catch(e=>{ console.error('panel pool error', e); });
+
+        meta.textContent = 'Dashboard renderizado: ' + (dashboard.title||uid);
+      }catch(e){ meta.textContent = 'Erro: '+ e.message; console.error(e); }
+    }
+
+    async function loadDashboard(uid){
+      // If user accidentally pasted a full Grafana URL (not a /d/<uid>/ style)
+      // refuse and explain rather than blindly forwarding which caused 403.
+      if(!uid) throw new Error('UID vazio');
+      if(typeof uid === 'string' && (uid.startsWith('http://') || uid.startsWith('https://') || uid.includes('/goto/'))){
+        // try to extract a /d/<uid>/ from the URL first
+        const m = uid.match(/\/d\/([^\/\?#]+)/) || uid.match(/\/dashboard\/db\/([^\/\?#]+)/);
+        if(m && m[1]) uid = m[1];
+        else throw new Error('URL do Grafana não suportada. Cole o UID do dashboard ou uma URL que contenha /d/<uid>/');
+      }
+
+      try{
+        const data = await fetchJson('/api/dashboard/'+encodeURIComponent(uid));
+        // if Grafana returns a wrapper object with .dashboard
+        const dash = data.dashboard || data;
+        await renderDashboardObject(dash);
+      }catch(e){
+        // Provide a helpful message for permission (403) errors coming from the proxy/grafana
+        const meta = document.getElementById('meta');
+        if(e && e.message && e.message.includes('HTTP 403')){
+          meta.textContent = 'Acesso proibido (403) ao buscar o dashboard. Verifique se o token do proxy tem permissão para ler dashboards.';
+        }else{
+          meta.textContent = 'Erro ao carregar dashboard: '+(e.message || e);
+        }
+        console.error('loadDashboard error', e);
+      }
+    }
+
+    function extractUidFromInput(input){
+      const v = input.trim();
+      if(!v) return '';
+      // if looks like a full URL or path containing /d/<uid>/
+  const m = v.match(/\/d\/([^\/?#]+)/);
+      if(m && m[1]) return m[1];
+      // if someone pasted a dashboard URL with uid= query param
+      const m2 = v.match(/[?&]orgId=.*uid=([^&]+)/);
+      if(m2 && m2[1]) return m2[1];
+      // fallback: assume user entered the uid directly
+      return v;
+    }
+
+    document.getElementById('load').addEventListener('click', ()=>{
+      const raw = document.getElementById('uid').value;
+      const uid = extractUidFromInput(raw);
+      if(!uid){ alert('Informe o UID do dashboard ou cole a URL do dashboard.'); return }
+  // If the input looks like a public-dashboards link (contains /public-dashboards/), resolve it first
+      if(raw.includes('/public-dashboards/')){
+        const m = raw.match(/public-dashboards\/(\w+)/);
+        const publicId = m && m[1];
+        if(publicId){
+          fetch('/api/public/'+encodeURIComponent(publicId)).then(r=>r.json()).then(info=>{
+            const mappedUid = (info && (info.data && info.data.dashboardUid)) || info.mappedUid || (info.data && info.data.uid) || null;
+            if(mappedUid){ loadDashboard(mappedUid); }
+            else { alert('Não foi possível resolver o link público para um dashboard interno. Veja o console para detalhes.'); console.warn('public-dashboards info', info); }
+          }).catch(e=>{ alert('Erro ao resolver link público: '+e.message); console.error(e); });
+          return;
+        }
+      }
+
+  // If it's a Grafana snapshot URL
+      if(raw.includes('/dashboard/snapshot/')){
+        const m = raw.match(/dashboard\/snapshot\/([A-Za-z0-9_-]+)/);
+        const key = m && m[1];
+        if(key){
+          fetch('/api/snapshots/'+encodeURIComponent(key)).then(r=>r.json()).then(info=>{
+            // Grafana snapshot response contains .dashboard with panels; render that
+            const dash = info.dashboard || (info && info.data && info.data.dashboard);
+            if(dash){ renderDashboardObject(dash); }
+            else { alert('Snapshot encontrado, mas não contém dashboard embutido. Veja o console.'); console.warn('snapshot info', info); }
+          }).catch(e=>{ alert('Erro ao carregar snapshot: '+e.message); console.error(e); });
+          return;
+        }
+      }
+
+      // If it's a Grafana 'goto' short link (example: /goto/<key> or full URL with /goto/)
+      if(raw.includes('/goto/')){
+        const m = raw.match(/goto\/(\w[-_\w]*)/);
+        const key = m && m[1];
+        if(key){
+          fetch('/api/resolve-goto/'+encodeURIComponent(key)).then(r=>r.json()).then(info=>{
+            if(info && info.mappedUid){ loadDashboard(info.mappedUid); }
+            else if(info && info.location){ alert('Link /goto/ redireciona para: '+info.location+' — não foi possível extrair UID.'); console.warn('resolve-goto', info); }
+            else { alert('Não foi possível resolver link /goto/. Veja console para detalhes.'); console.warn('resolve-goto', info); }
+          }).catch(e=>{ alert('Erro ao resolver link /goto/: '+e.message); console.error(e); });
+          return;
+        }
+      }
+
+      loadDashboard(uid);
+    });
+
+    document.getElementById('snapshot').addEventListener('click', async ()=>{
+      const raw = document.getElementById('uid').value;
+      const uid = extractUidFromInput(raw);
+      if(!uid){ alert('Informe o UID do dashboard (ou cole a URL) antes de criar snapshot.'); return }
+      const area = document.getElementById('snapshotArea');
+      if(!area){ console.warn('snapshotArea não encontrado no DOM'); return }
+      area.innerHTML = '<span class="spinner"></span> Gerando snapshot...';
+      try{
+        const body = { dashboardUid: uid, name: `snapshot-from-ui-${Date.now()}` };
+        // use relative path so same-origin policies and proxy fallback work consistently
+        const r = await fetch('/api/snapshot', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        const data = await r.json();
+        // Grafana snapshot API may return { url, key, ... } or nested
+        const url = (data && (data.url || data.snapshotUrl || (data.snapshot && data.snapshot.url))) || `/dashboard/snapshot/${data.key || data.uid || ''}`;
+        area.innerHTML = `Snapshot criado: <a class="snapshot-link" href="${url}" target="_blank">${url}</a> <button class="copy-btn" id="copySnap">Copiar</button>`;
+        document.getElementById('copySnap').addEventListener('click', ()=>{ try{ navigator.clipboard.writeText(url); }catch(_){} });
+      }catch(err){ area.innerHTML = `<span class="error">Erro ao criar snapshot: ${err.message}</span>`; console.error(err); }
+    });
+
+    // Auto-load first dashboard if input empty
+    document.addEventListener('DOMContentLoaded', async ()=>{
+      const inp = document.getElementById('uid');
+      if(inp.value && inp.value.trim() !== '') return; // user provided
+      try{
+        const res = await fetchJson('/api/search?q=');
+        if(Array.isArray(res) && res.length>0){
+          const first = res[0];
+          if(first && first.uid){ inp.value = first.uid; try{ await loadDashboard(first.uid); }catch(e){ /* already handled inside loadDashboard */ } }
+        }
+      }catch(e){ console.warn('auto-load failed', e); }
+    });
+  </script>
+</body>
+</html>

@@ -17,6 +17,11 @@ docker compose up -d
 - Grafana: http://localhost:3000 (username: admin / password: admin)
 - Prometheus: http://localhost:9090
 
+Additionally, this repo includes a small proxy service and a customizable UI:
+
+- Proxy/API server: http://localhost:3100 (exposes /api/dashboard/:uid and /api/query?q=...)
+- Custom UI: http://localhost:8000/custom-dashboard.html (consumes the proxy)
+
 3) Local viewer (static frontend):
 
 Serve the `web/` folder (e.g., Python HTTP server) and open the viewer:
@@ -26,6 +31,10 @@ Serve the `web/` folder (e.g., Python HTTP server) and open the viewer:
 python -m http.server 8000 --directory web
 # then access
 http://localhost:8000/grafana-viewer.html
+
+or the custom UI:
+
+http://localhost:8000/custom-dashboard.html
 ```
 
 ## Main structure
@@ -117,7 +126,7 @@ If the iframe displays an error like "Refused to display '...' in a frame becaus
 
 ```Powershell
 # Start all services
-docker compose up -d
+docker compose up -d --build
 
 # View Grafana logs
 docker compose logs -f Grafana
@@ -136,3 +145,16 @@ Pull requests are welcome. For dashboard contributions, add the JSON file to `gr
 ## License
 
 This project follows the license present in the repository (see `LICENSE`).
+
+## Secrets (desenvolvimento local)
+
+Este repositório suporta Docker Compose secrets. Para desenvolvimento local, preencha os arquivos de placeholder na pasta `secrets/` com os valores reais (uma única linha, sem comentários) e não os adicione ao controle de versão.
+
+- `secrets/grafana_token` — chave de API do Grafana (Editor/Admin) usada pelo proxy para criar snapshots. Coloque apenas o token na primeira linha.
+- `secrets/redis_password` — senha do Redis usada pelo serviço Redis e pelo proxy. Coloque apenas a senha na primeira linha.
+
+Após adicionar os secrets, reinicie os serviços Redis e app para que leiam os novos valores. Exemplo (PowerShell):
+
+docker compose up -d --no-deps --build redis; docker compose up -d --no-deps --build app
+
+NÃO comite os arquivos em `secrets/` no seu repositório.
