@@ -140,7 +140,7 @@
             const url = '/api/query_range?q='+encodeURIComponent(expr)+'&start='+start+'&end='+end+'&step='+step;
             const rr = await fetchJson(url);
             const series = (rr.data && rr.data.result) ? rr.data.result : [];
-
+            
             if(series.length === 0){
               const inst = await fetchJson('/api/query?q='+encodeURIComponent(expr));
               const instSeries = (inst.data && inst.data.result) ? inst.data.result : [];
@@ -162,7 +162,7 @@
 
         // run pool and don't block UI main thread
         runPool(panelsToProcess, worker, 3).then(()=>{ console.log('all panels processed'); }).catch(e=>{ console.error('panel pool error', e); });
-
+        
         meta.textContent = 'Dashboard renderizado: ' + (dashboard.title||uid);
       }catch(e){ meta.textContent = 'Erro: '+ e.message; console.error(e); }
     }
