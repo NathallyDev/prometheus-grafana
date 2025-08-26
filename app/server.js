@@ -118,9 +118,25 @@ app.get('/api/resolve-goto/:key', async (req, res) => {
   try {
     const key = req.params.key;
     // First try a non-following request to capture Location header when Grafana issues a server-side redirect
+    // Prefer an authenticated non-following request when we have a token so Grafana will resolve short-links
+    // to the final dashboard location instead of redirecting to /login.
+    if(GRAFANA_TOKEN){
+      try{
+        const resp = await grafanaClient.get(`/goto/${encodeURIComponent(key)}`, { maxRedirects: 0, validateStatus: s => s >= 200 && s < 400, timeout: 10000 });
+        const location = (resp && resp.headers) ? (resp.headers.location || resp.headers.Location) : null;
+        if(location){
+          const m = String(location).match(/\/d\/([^\/\?#]+)/);
+          const mappedUid = m && m[1] ? m[1] : null;
+          return res.json({ location, mappedUid, source: 'location-header-auth' });
+        }
+        // fallthrough to unauthenticated attempt if no location header present
+      }catch(e){
+        console.warn('resolve-goto: authenticated request failed (will try unauthenticated),', e && e.message);
+      }
+    }
+
+    // Try unauthenticated non-following request (useful for public short-links)
     try{
-      // Use an unauthenticated request for /goto because some Grafana instances allow public short-links
-      // but the server-side API token may be missing or invalid; calling without auth avoids 401.
       const resp = await axios.get(`${GRAFANA_URL}/goto/${encodeURIComponent(key)}`, { maxRedirects: 0, validateStatus: s => s >= 200 && s < 400, timeout: 10000 });
       const location = (resp && resp.headers) ? (resp.headers.location || resp.headers.Location) : null;
       if(location){
@@ -130,8 +146,6 @@ app.get('/api/resolve-goto/:key', async (req, res) => {
       }
       // fallthrough to HTML parsing if no Location header present
     }catch(e){
-      // if the non-following request failed (some servers may not like maxRedirects=0) or returned 401,
-      // continue to HTML fallback below.
       console.warn('resolve-goto: unauthenticated request failed, will attempt HTML fallback', e && e.message);
     }
 

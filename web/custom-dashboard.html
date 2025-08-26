@@ -105,6 +105,28 @@
             const cacheKey = `${dashboard.uid||dashboard.title||''}:${p.id || 'noid'}:${from}:${to}:${width}x${height}`;
             if(renderCache.has(cacheKey)){
               const blob = renderCache.get(cacheKey);
+        // --- lazy rendering: only start rendering when card is visible in viewport ---
+        const io = new IntersectionObserver((entries)=>{
+          for(const ent of entries){
+            if(!ent.isIntersecting) continue;
+            const idx = Number(ent.target.getAttribute('data-idx'));
+            const item = panelsToProcess[idx];
+            if(!item) continue;
+            // schedule rendering via semaphore scheduler
+            scheduler(()=>worker(item)).catch(e=>console.error('scheduled worker error', e));
+            io.unobserve(ent.target);
+          }
+        }, { root: null, rootMargin: '200px 0px 200px 0px', threshold: 0.1 });
+
+        // register all cards for lazy load (but still created in DOM)
+        panelsToProcess.forEach((it, i)=>{ it.c.el.setAttribute('data-idx', String(i)); try{ io.observe(it.c.el); }catch(_){ /* ignore */ } });
+
+        // Kickstart: render first N cards eagerly (above-the-fold) to improve perceived load
+        const eager = 2;
+        for(let i=0;i<Math.min(eager, panelsToProcess.length); i++){
+          const it = panelsToProcess[i]; scheduler(()=>worker(it)).catch(e=>console.error('eager worker', e));
+          try{ io.unobserve(it.c.el); }catch(_){} 
+        }
               const img = document.createElement('img'); img.style.width='100%'; img.style.height=height+'px'; img.style.objectFit='contain';
               c.el.replaceChild(img, c.canvas);
               img.src = URL.createObjectURL(blob);
@@ -243,16 +265,41 @@
 
       // If it's a Grafana 'goto' short link (example: /goto/<key> or full URL with /goto/)
       if(raw.includes('/goto/')){
-        const m = raw.match(/goto\/(\w[-_\w]*)/);
-        const key = m && m[1];
-        if(key){
-          fetch('/api/resolve-goto/'+encodeURIComponent(key)).then(r=>r.json()).then(info=>{
-            if(info && info.mappedUid){ loadDashboard(info.mappedUid); }
-            else if(info && info.location){ alert('Link /goto/ redireciona para: '+info.location+' — não foi possível extrair UID.'); console.warn('resolve-goto', info); }
-            else { alert('Não foi possível resolver link /goto/. Veja console para detalhes.'); console.warn('resolve-goto', info); }
-          }).catch(e=>{ alert('Erro ao resolver link /goto/: '+e.message); console.error(e); });
-          return;
-        }
+          const m = raw.match(/goto\/(\w[-_\w]*)/);
+          const key = m && m[1];
+          if(key){
+            fetch('/api/resolve-goto/'+encodeURIComponent(key)).then(r=>r.json()).then(info=>{
+              // If backend provided mappedUid, use it immediately
+              if(info && info.mappedUid){ loadDashboard(info.mappedUid); return; }
+
+              // If backend returned a location (common), try to extract useful parts.
+              if(info && info.location){
+                const loc = info.location;
+                // If redirect to login with a redirectTo param, decode it and try to extract UID
+                try{
+                  const url = new URL(loc, window.location.origin);
+                  const redirectTo = url.searchParams.get('redirectTo') || url.searchParams.get('next');
+                  if(redirectTo){
+                    const decoded = decodeURIComponent(redirectTo);
+                    // try several patterns: /d/<uid>/, /dashboard/db/<slug>/, uid query param, or raw uid
+                    const m1 = decoded.match(/\/d\/([^\/\?#]+)/);
+                    const m2 = decoded.match(/dashboard\/db\/([^\/\?#]+)/);
+                    const m3 = decoded.match(/[?&]uid=([^&]+)/);
+                    const found = (m1 && m1[1]) || (m2 && m2[1]) || (m3 && m3[1]) || null;
+                    if(found){ loadDashboard(found); return; }
+                  }
+                }catch(e){ /* ignore parse errors */ }
+
+                // If we couldn't extract a uid, inform the user and suggest actions
+                alert('Link /goto/ redireciona para: '+loc+"\nNão foi possível extrair UID automaticamente.\n\nSoluções:\n - Faça login no Grafana neste navegador (http://localhost:3000) e tente novamente.\n - Ou abra o link em uma aba, faça login e copie o UID (/d/<uid>/...) no URL.\n - Se estiver usando proxy, verifique se o proxy tem permissão/tokens para resolver links curtos.\n\nVeja o console para detalhes.");
+                console.warn('resolve-goto', info);
+                return;
+              }
+
+              alert('Não foi possível resolver link /goto/. Veja console para detalhes.'); console.warn('resolve-goto', info);
+            }).catch(e=>{ alert('Erro ao resolver link /goto/: '+e.message); console.error(e); });
+            return;
+          }
       }
 
       loadDashboard(uid);
